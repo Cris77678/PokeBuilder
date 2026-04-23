@@ -1,0 +1,120 @@
+plugins {
+    id 'fabric-loom' version '1.11-SNAPSHOT'
+    id 'maven-publish'
+}
+
+archivesBaseName = project.archives_base_name
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
+    maven { url "https://maven.architectury.dev/" }
+    maven { url "https://maven.impactdev.net/repository/development/" }
+    maven { url "https://jitpack.io" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.1"
+    mappings "net.fabricmc:yarn:1.21.1+build.3:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.17.2"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.110.0+1.21.1"
+
+    // Cobblemon
+    modImplementation "com.cobblemon:fabric:1.7.3+1.21.1"
+
+    // Local JARs — incluye GooeyLibs, CobbleUtils, Impactor y PokemonViewAPI
+    modImplementation(fileTree(dir: 'libs', include: '*.jar'))
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.36'
+    annotationProcessor 'org.projectlombok:lombok:1.18.36'
+
+    // LuckPerms
+    modCompileOnly "net.luckperms:api:5.4"
+
+    // Gson
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+
+    // Kotlin stdlib (para compilar contra tipos Kotlin de Cobblemon)
+    compileOnly "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
+}
+
+loom {
+    mods {
+        "pokebuilder" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filteringCharset "UTF-8"
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    from("LICENSE") { rename { "${it}_${project.archivesBaseName}" } }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tarea opcional: copia el JAR de PokemonViewAPI al libs/ automáticamente
+// si el proyecto hermano está en la misma carpeta padre.
+//
+// Uso:  .\gradlew.bat copyApiJar build
+//
+// Estructura de carpetas esperada:
+//   MiServidor/
+//     PokeBuilder-mejorado/    ← este proyecto
+//     PokemonViewAPI/          ← proyecto hermano
+// ─────────────────────────────────────────────────────────────────────────────
+tasks.register('copyApiJar') {
+    group = 'pokebuilder'
+    description = 'Copia el JAR compilado de PokemonViewAPI al directorio libs/'
+
+    doLast {
+        def apiDir = file("${rootProject.projectDir}/../PokemonViewAPI")
+        if (!apiDir.exists()) {
+            logger.warn("⚠ PokemonViewAPI no encontrado en: ${apiDir.absolutePath}")
+            logger.warn("  Compila PokemonViewAPI manualmente y copia el JAR a libs/")
+            return
+        }
+
+        def apiJars = fileTree(dir: "${apiDir}/build/libs", include: "PokemonViewAPI-*.jar")
+            .exclude("*-sources.jar")
+            .files
+
+        if (apiJars.isEmpty()) {
+            logger.warn("⚠ No se encontró el JAR de PokemonViewAPI en build/libs/")
+            logger.warn("  Ejecuta primero: cd ../PokemonViewAPI && .\\gradlew.bat build")
+            return
+        }
+
+        def destDir = file("libs")
+        destDir.mkdirs()
+
+        // Eliminar versiones antiguas de la API
+        fileTree(dir: destDir, include: "PokemonViewAPI-*.jar").each { it.delete() }
+
+        apiJars.each { jar ->
+            copy {
+                from jar
+                into destDir
+            }
+            logger.lifecycle("✔ Copiado: ${jar.name} → libs/")
+        }
+    }
+}

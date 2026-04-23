@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "pokebuilder",
+  "version": "${version}",
+  "name": "PokeBuilder",
+  "description": "Edit your Pokemon stats using PokeCoins.",
+  "authors": ["TuServidor"],
+  "license": "All-Rights-Reserved",
+  "environment": "server",
+  "entrypoints": {
+    "main": ["com.tuservidor.pokebuilder.PokeBuilder"]
+  },
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "fabric-api": "*",
+    "cobblemon": ">=1.7.3",
+    "minecraft": "1.21.1"
+  }
+}
