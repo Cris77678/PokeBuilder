@@ -18,6 +18,9 @@ public class PokeBuilder implements ModInitializer {
 
     public static final String MOD_ID = "pokebuilder";
     public static final String PATH = "config/pokebuilder/";
+    // ESTA ES LA LÍNEA QUE FALTABA:
+    public static final String PATH_LANG = PATH + "lang/"; 
+    
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public static MinecraftServer server;
@@ -34,7 +37,7 @@ public class PokeBuilder implements ModInitializer {
     public static void runAsync(Runnable task) {
         CompletableFuture.runAsync(task, EXECUTOR)
             .orTimeout(15, TimeUnit.SECONDS)
-            .exceptionally(e -> { LOGGER.error("Async error", e); return null; });
+            .exceptionally(e -> { LOGGER.error("Error en tarea asíncrona", e); return null; });
     }
 
     @Override
