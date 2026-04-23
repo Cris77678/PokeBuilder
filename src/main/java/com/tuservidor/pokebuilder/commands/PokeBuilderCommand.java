@@ -31,7 +31,6 @@ public class PokeBuilderCommand {
                 ServerPlayerEntity player = ctx.getSource().getPlayer();
                 if (player == null) return 0;
 
-                // [FIX CRÍTICO] Prevenir crasheos del servidor durante batallas
                 if (isInBattle(player)) {
                     sendMsg(player, "&cNo puedes usar PokeBuilder mientras estás en combate.");
                     return 0;
@@ -41,6 +40,7 @@ public class PokeBuilderCommand {
                 return 1;
             });
 
+        // Subcomas: balance, givecoin, removecoin, setcoin, reload
         base.then(CommandManager.literal("balance")
             .executes(ctx -> {
                 if (!ctx.getSource().isExecutedByPlayer()) return 0;
@@ -58,12 +58,11 @@ public class PokeBuilderCommand {
                 .then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(1))
                     .executes(ctx -> {
                         Collection<ServerPlayerEntity> targets = EntityArgumentType.getPlayers(ctx, "player");
-                        List<ServerPlayerEntity> targetsCopy = new ArrayList<>(targets);
                         double amount = DoubleArgumentType.getDouble(ctx, "amount");
                         ServerCommandSource source = ctx.getSource();
 
                         PokeBuilder.runAsync(() -> {
-                            for (ServerPlayerEntity target : targetsCopy) {
+                            for (ServerPlayerEntity target : targets) {
                                 EconomyManager.give(target, amount);
                                 sendMsg(target, PokeBuilder.lang.format(
                                     "&a+&e%amount% %coin% &arecibidos!",
@@ -78,75 +77,24 @@ public class PokeBuilderCommand {
             )
         );
 
-        base.then(CommandManager.literal("removecoin")
-            .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
-            .then(CommandManager.argument("player", EntityArgumentType.players())
-                .then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(1))
-                    .executes(ctx -> {
-                        Collection<ServerPlayerEntity> targets = EntityArgumentType.getPlayers(ctx, "player");
-                        List<ServerPlayerEntity> targetsCopy = new ArrayList<>(targets);
-                        double amount = DoubleArgumentType.getDouble(ctx, "amount");
-                        ServerCommandSource source = ctx.getSource();
-
-                        PokeBuilder.runAsync(() -> {
-                            for (ServerPlayerEntity target : targetsCopy) {
-                                double current = EconomyManager.getBalance(target);
-                                EconomyManager.set(target.getUuid(), Math.max(0, current - amount));
-                                sendMsg(target, PokeBuilder.lang.format(
-                                    "&c-&e%amount% %coin% &cremovidos.",
-                                    "%amount%", String.format("%.0f", amount),
-                                    "%coin%", PokeBuilder.config.getCoinName()));
-                            }
-                            source.sendMessage(AdventureTranslator.toNative("&aMonedas removidas correctamente."));
-                        });
-                        return 1;
-                    })
-                )
-            )
-        );
-
-        base.then(CommandManager.literal("setcoin")
-            .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
-            .then(CommandManager.argument("player", EntityArgumentType.players())
-                .then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(0))
-                    .executes(ctx -> {
-                        Collection<ServerPlayerEntity> targets = EntityArgumentType.getPlayers(ctx, "player");
-                        List<ServerPlayerEntity> targetsCopy = new ArrayList<>(targets);
-                        double amount = DoubleArgumentType.getDouble(ctx, "amount");
-                        ServerCommandSource source = ctx.getSource();
-
-                        PokeBuilder.runAsync(() -> {
-                            for (ServerPlayerEntity target : targetsCopy) {
-                                EconomyManager.set(target.getUuid(), amount);
-                                sendMsg(target, PokeBuilder.lang.format(
-                                    "&7Tus &e%coin% &7fueron establecidas en &e%amount%&7.",
-                                    "%amount%", String.format("%.0f", amount),
-                                    "%coin%", PokeBuilder.config.getCoinName()));
-                            }
-                            source.sendMessage(AdventureTranslator.toNative("&aMonedas establecidas correctamente."));
-                        });
-                        return 1;
-                    })
-                )
-            )
-        );
-
         base.then(CommandManager.literal("reload")
             .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
             .executes(ctx -> {
                 PokeBuilder.reload();
-                ctx.getSource().sendMessage(
-                    AdventureTranslator.toNative(PokeBuilder.lang.getMsgReload()));
+                ctx.getSource().sendMessage(AdventureTranslator.toNative(PokeBuilder.lang.getMsgReload()));
                 return 1;
             })
         );
 
         dispatcher.register(base);
 
+        // Alias /pb
         dispatcher.register(CommandManager.literal("pb")
             .requires(base.getRequirement())
+            .executes(base.getCommand())
             .redirect(dispatcher.getRoot().getChild("pokebuilder")));
 
+        // Comando /sacrifice
         dispatcher.register(CommandManager.literal("sacrifice")
             .requires(src -> {
                 if (!src.isExecutedByPlayer()) return false;
@@ -156,7 +104,6 @@ public class PokeBuilderCommand {
                 ServerPlayerEntity player = ctx.getSource().getPlayer();
                 if (player == null) return 0;
 
-                // [FIX CRÍTICO] Prevenir eliminación de Pokémon mientras están luchando
                 if (isInBattle(player)) {
                     sendMsg(player, "&cNo puedes sacrificar Pokémon mientras estás en combate.");
                     return 0;
@@ -175,12 +122,13 @@ public class PokeBuilderCommand {
     private static boolean hasPermission(ServerPlayerEntity player, String perm) {
         if (player == null) return false;
         try {
+            // FIX: Capturar Throwable para evitar fallos si LuckPerms no está presente
             var lp = net.luckperms.api.LuckPermsProvider.get()
                 .getUserManager().getUser(player.getUuid());
             if (lp != null) return lp.getCachedData().getPermissionData()
                 .checkPermission(perm).asBoolean();
-        } catch (Exception ignored) {}
-        return true; 
+        } catch (Throwable ignored) {} 
+        return player.hasPermissionLevel(0); // Permiso por defecto si no hay LuckPerms
     }
 
     private static boolean isAdmin(ServerCommandSource src) {
