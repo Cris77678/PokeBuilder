@@ -6,12 +6,12 @@ import net.impactdev.impactor.api.economy.EconomyService;
 import net.impactdev.impactor.api.economy.accounts.Account;
 import net.impactdev.impactor.api.economy.currency.Currency;
 import net.impactdev.impactor.api.economy.transactions.EconomyTransaction;
+import net.kyori.adventure.key.Key;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class EconomyManager {
 
@@ -29,7 +29,13 @@ public class EconomyManager {
 
     private static Currency getCurrency() {
         var service = getService();
-        return (service != null) ? service.currencies().primary() : null;
+        if (service == null) return null;
+
+        // Buscamos la moneda específica usando su Key en lugar de primary()
+        return service.currencies().currency(Key.key("pokebuilder", "pokecoins")).orElseGet(() -> {
+            PokeBuilder.LOGGER.error("No se encontró la moneda 'pokebuilder:pokecoins'.");
+            return null;
+        });
     }
 
     public static double getBalance(ServerPlayerEntity player) {
