@@ -1,86 +1,148 @@
-package com.tuservidor.pokebuilder;
+package com.tuservidor.pokebuilder.commands;
 
-import com.tuservidor.pokebuilder.config.PokeBuilderConfig;
-import com.tuservidor.pokebuilder.config.PokeBuilderLang;
-import com.tuservidor.pokebuilder.commands.PokeBuilderCommand;
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.server.MinecraftServer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.cobblemon.mod.common.Cobblemon;
+import com.kingpixel.cobbleutils.util.AdventureTranslator;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.tuservidor.pokebuilder.PokeBuilder;
+import com.tuservidor.pokebuilder.economy.EconomyManager;
+import com.tuservidor.pokebuilder.ui.SelectPokemonMenu;
+import com.tuservidor.pokebuilder.ui.SacrificeMenu;
+import net.minecraft.command.argument.EntityArgumentType;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 
-// Importaciones para registrar la moneda en Impactor
-import net.impactdev.impactor.api.Impactor;
-import net.impactdev.impactor.api.economy.EconomyService;
-import net.impactdev.impactor.api.economy.currency.Currency;
-import net.kyori.adventure.key.Key;
-import net.kyori.adventure.text.Component;
-import java.math.BigDecimal;
+import java.util.Collection;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+public class PokeBuilderCommand {
 
-public class PokeBuilder implements ModInitializer {
+    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
 
-    public static final String MOD_ID = "pokebuilder";
-    public static final String PATH = "config/pokebuilder/";
-    public static final String PATH_LANG = PATH + "lang/"; 
-    
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+        var base = CommandManager.literal("pokebuilder")
+            .requires(src -> {
+                if (!src.isExecutedByPlayer()) return true;
+                return hasPermission(src.getPlayer(), "pokebuilder.use");
+            })
+            .executes(ctx -> {
+                if (!ctx.getSource().isExecutedByPlayer()) return 0;
+                ServerPlayerEntity player = ctx.getSource().getPlayer();
+                if (player == null) return 0;
 
-    public static MinecraftServer server;
-    public static PokeBuilderConfig config = new PokeBuilderConfig();
-    public static PokeBuilderLang lang = new PokeBuilderLang();
-
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
-
-    public static void reload() {
-        config.init();
-        lang.init();
-    }
-
-    public static void runAsync(Runnable task) {
-        CompletableFuture.runAsync(task, EXECUTOR)
-            .orTimeout(15, TimeUnit.SECONDS)
-            .exceptionally(e -> { LOGGER.error("Error en tarea asíncrona", e); return null; });
-    }
-
-    @Override
-    public void onInitialize() {
-        LOGGER.info("PokeBuilder cargando...");
-
-        // Evento para registrar la moneda cuando el servidor empieza a cargar
-        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTING.register(srv -> {
-            try {
-                EconomyService service = Impactor.instance().services().provide(EconomyService.class);
-                Key currencyKey = Key.key("pokebuilder", "pokecoins");
-                
-                // Si la moneda no existe en Impactor, la creamos
-                if (!service.currencies().has(currencyKey)) {
-                    Currency pokeCoins = Currency.builder()
-                            .key(currencyKey)
-                            .name(Component.text(config.getCoinNameSingular()))
-                            .plural(Component.text(config.getCoinName()))
-                            .symbol(Component.text("PC"))
-                            .defaultBalance(BigDecimal.ZERO)
-                            .build();
-                    service.currencies().register(pokeCoins);
-                    LOGGER.info("Moneda separada (PokéCoins) registrada exitosamente en Impactor.");
+                if (isInBattle(player)) {
+                    sendMsg(player, "&cNo puedes usar PokeBuilder mientras estás en combate.");
+                    return 0;
                 }
-            } catch (Throwable e) {
-                LOGGER.warn("Impactor no detectado o error al registrar la moneda: " + e.getMessage());
-            }
-        });
 
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-            PokeBuilderCommand.register(dispatcher));
+                // CORRECCIÓN: Se abre el menú directamente en el hilo principal
+                SelectPokemonMenu.open(player);
+                return 1;
+            });
 
-        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(srv -> {
-            server = srv;
-            reload();
-            LOGGER.info("PokeBuilder listo!");
-        });
+        // Subcomando: balance
+        base.then(CommandManager.literal("balance")
+            .executes(ctx -> {
+                if (!ctx.getSource().isExecutedByPlayer()) return 0;
+                ServerPlayerEntity player = ctx.getSource().getPlayer();
+                // Los mensajes sí pueden ir en asíncrono
+                PokeBuilder.runAsync(() -> {
+                    sendMsg(player, "&7Tu saldo: &e" + EconomyManager.getBalanceFormatted(player));
+                });
+                return 1;
+            })
+        );
+
+        // Subcomando: givecoin
+        base.then(CommandManager.literal("givecoin")
+            .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
+            .then(CommandManager.argument("player", EntityArgumentType.players())
+                .then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(1))
+                    .executes(ctx -> {
+                        Collection<ServerPlayerEntity> targets = EntityArgumentType.getPlayers(ctx, "player");
+                        double amount = DoubleArgumentType.getDouble(ctx, "amount");
+                        ServerCommandSource source = ctx.getSource();
+
+                        PokeBuilder.runAsync(() -> {
+                            for (ServerPlayerEntity target : targets) {
+                                EconomyManager.give(target, amount);
+                                sendMsg(target, PokeBuilder.lang.format(
+                                    "&a+&e%amount% %coin% &arecibidos!",
+                                    "%amount%", String.format("%.0f", amount),
+                                    "%coin%", PokeBuilder.config.getCoinName()));
+                            }
+                            source.sendMessage(AdventureTranslator.toNative("&aMonedas dadas correctamente."));
+                        });
+                        return 1;
+                    })
+                )
+            )
+        );
+
+        // Subcomando: reload
+        base.then(CommandManager.literal("reload")
+            .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
+            .executes(ctx -> {
+                PokeBuilder.reload();
+                ctx.getSource().sendMessage(AdventureTranslator.toNative(PokeBuilder.lang.getMsgReload()));
+                return 1;
+            })
+        );
+
+        dispatcher.register(base);
+
+        // Alias /pb
+        dispatcher.register(CommandManager.literal("pb")
+            .requires(base.getRequirement())
+            .executes(base.getCommand())
+            .redirect(dispatcher.getRoot().getChild("pokebuilder")));
+
+        // Comando /sacrifice
+        dispatcher.register(CommandManager.literal("sacrifice")
+            .requires(src -> {
+                if (!src.isExecutedByPlayer()) return false;
+                return hasPermission(src.getPlayer(), "pokebuilder.use");
+            })
+            .executes(ctx -> {
+                ServerPlayerEntity player = ctx.getSource().getPlayer();
+                if (player == null) return 0;
+
+                if (isInBattle(player)) {
+                    sendMsg(player, "&cNo puedes sacrificar Pokémon mientras estás en combate.");
+                    return 0;
+                }
+
+                // CORRECCIÓN: Se abre el menú directamente en el hilo principal
+                SacrificeMenu.open(player);
+                return 1;
+            })
+        );
+    }
+
+    private static boolean isInBattle(ServerPlayerEntity player) {
+        return Cobblemon.INSTANCE.getBattleRegistry().getBattleByParticipatingPlayer(player) != null;
+    }
+
+    private static boolean hasPermission(ServerPlayerEntity player, String perm) {
+        if (player == null) return false;
+        if (player.hasPermissionLevel(2)) return true; // Fix para que el OP siempre pueda usarlo
+
+        try {
+            var lp = net.luckperms.api.LuckPermsProvider.get()
+                .getUserManager().getUser(player.getUuid());
+            if (lp != null) return lp.getCachedData().getPermissionData()
+                .checkPermission(perm).asBoolean();
+        } catch (Throwable ignored) {} 
+        
+        return player.hasPermissionLevel(0);
+    }
+
+    private static boolean isAdmin(ServerCommandSource src) {
+        if (!src.isExecutedByPlayer()) return true;
+        return hasPermission(src.getPlayer(), "pokebuilder.admin");
+    }
+
+    private static void sendMsg(ServerPlayerEntity player, String msg) {
+        if (player != null)
+            player.sendMessage(AdventureTranslator.toNative(msg));
     }
 }
