@@ -15,7 +15,6 @@ import net.impactdev.impactor.api.economy.EconomyService;
 import net.impactdev.impactor.api.economy.currency.Currency;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
-import java.math.BigDecimal;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -57,14 +56,14 @@ public class PokeBuilder implements ModInitializer {
                 EconomyService service = Impactor.instance().services().provide(EconomyService.class);
                 Key currencyKey = Key.key("pokebuilder", "pokecoins");
                 
-                // Si la moneda no existe en Impactor, la creamos
-                if (!service.currencies().has(currencyKey)) {
+                // CORRECCIÓN 1: Usar .currency().isPresent() en lugar de .has()
+                if (!service.currencies().currency(currencyKey).isPresent()) {
                     Currency pokeCoins = Currency.builder()
                             .key(currencyKey)
                             .name(Component.text(config.getCoinNameSingular()))
                             .plural(Component.text(config.getCoinName()))
                             .symbol(Component.text("PC"))
-                            .defaultBalance(BigDecimal.ZERO)
+                            // CORRECCIÓN 2: Eliminado .defaultBalance() (No existe en esta API, inicia en 0 por defecto)
                             .build();
                     service.currencies().register(pokeCoins);
                     LOGGER.info("Moneda separada (PokéCoins) registrada exitosamente en Impactor.");
