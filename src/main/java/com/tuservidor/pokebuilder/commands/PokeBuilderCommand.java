@@ -13,9 +13,7 @@ import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 
 public class PokeBuilderCommand {
 
@@ -36,15 +34,17 @@ public class PokeBuilderCommand {
                     return 0;
                 }
 
-                PokeBuilder.runAsync(() -> SelectPokemonMenu.open(player));
+                // CORRECCIÓN: Se abre el menú directamente en el hilo principal
+                SelectPokemonMenu.open(player);
                 return 1;
             });
 
-        // Subcomas: balance, givecoin, removecoin, setcoin, reload
+        // Subcomando: balance
         base.then(CommandManager.literal("balance")
             .executes(ctx -> {
                 if (!ctx.getSource().isExecutedByPlayer()) return 0;
                 ServerPlayerEntity player = ctx.getSource().getPlayer();
+                // Los mensajes sí pueden ir en asíncrono
                 PokeBuilder.runAsync(() -> {
                     sendMsg(player, "&7Tu saldo: &e" + EconomyManager.getBalanceFormatted(player));
                 });
@@ -52,6 +52,7 @@ public class PokeBuilderCommand {
             })
         );
 
+        // Subcomando: givecoin
         base.then(CommandManager.literal("givecoin")
             .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
             .then(CommandManager.argument("player", EntityArgumentType.players())
@@ -77,6 +78,7 @@ public class PokeBuilderCommand {
             )
         );
 
+        // Subcomando: reload
         base.then(CommandManager.literal("reload")
             .requires(src -> src.hasPermissionLevel(2) || isAdmin(src))
             .executes(ctx -> {
@@ -109,7 +111,8 @@ public class PokeBuilderCommand {
                     return 0;
                 }
 
-                PokeBuilder.runAsync(() -> SacrificeMenu.open(player));
+                // CORRECCIÓN: Se abre el menú directamente en el hilo principal
+                SacrificeMenu.open(player);
                 return 1;
             })
         );
@@ -121,14 +124,16 @@ public class PokeBuilderCommand {
 
     private static boolean hasPermission(ServerPlayerEntity player, String perm) {
         if (player == null) return false;
+        if (player.hasPermissionLevel(2)) return true; // Fix para que el OP siempre pueda usarlo
+
         try {
-            // FIX: Capturar Throwable para evitar fallos si LuckPerms no está presente
             var lp = net.luckperms.api.LuckPermsProvider.get()
                 .getUserManager().getUser(player.getUuid());
             if (lp != null) return lp.getCachedData().getPermissionData()
                 .checkPermission(perm).asBoolean();
         } catch (Throwable ignored) {} 
-        return player.hasPermissionLevel(0); // Permiso por defecto si no hay LuckPerms
+        
+        return player.hasPermissionLevel(0);
     }
 
     private static boolean isAdmin(ServerCommandSource src) {
